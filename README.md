@@ -1,21 +1,33 @@
 Simple Dynamic Strings
 ===
 
+简单动态字符串
+===
+
 **Notes about version 2**: this is an updated version of SDS in an attempt
 to finally unify Redis, Disque, Hiredis, and the stand alone SDS versions.
 This version is **NOT* binary compatible** with SDS verison 1, but the API
 is 99% compatible so switching to the new lib should be trivial.
 
+**版本2需要注意的地方:** 这是一个SDS的更新版本，该版本尝试最终统一Redis，Disque，Hiredis以及独立的SDS版本。这个版本和版本1的SDS**不是二进制兼容的**，但是百分之99的API都是适用的，所以迁移到心的库应该是比较容易的。
+
 Note that this version of SDS may be a slower with certain workloads, but
 uses less memory compared to V1 since header size is dynamic and depends to
 the string to alloc.
+
+SDS的这个版本在某些情况下可能会比较慢，但是相比于版本1来说会适用更少的内存空间，因为header会根据分配的字符串动态调整大小。
 
 Moreover it includes a few more API functions, notably `sdscatfmt` which
 is a faster version of `sdscatprintf` that can be used for the simpler
 cases in order to avoid the libc `printf` family functions performance
 penalty.
 
+此外它还包含了几个新的API函数，尤其是`sdscatfmt`，`sdscatfmt`是`sdscatprintf`的优化版，它可以被用在更简单的场景下，进而避免libc中`printf`函数族的低性能。
+
 How SDS strings work
+===
+
+SDS字符串是怎么工作的
 ===
 
 SDS is a string library for C designed to augment the limited libc string
@@ -25,6 +37,13 @@ handling functionalities by adding heap allocated strings that are:
 * Binary safe.
 * Computationally more efficient.
 * But yet... Compatible with normal C string functions.
+
+SDS是一个C语言的字符串库，通过增加堆分配的字符串来增强有限的libc字符串的处理能力。
+
+* 使用更简单
+* 二进制安全（[什么是二进制安全](https://www.boboidea.com/blog/42)）
+* 更高效的计算力
+* 而且...完全适用于普通c字符串功能
 
 This is achieved using an alternative design in which instead of using a C
 structure to represent a string, we use a binary prefix that is stored
@@ -42,10 +61,22 @@ the string regardless of the actual content of the string, SDS strings work
 well together with C strings and the user is free to use them interchangeably
 with other std C string functions that access the string in read-only.
 
+这是通过使用另一种设计实现的，而不是使用一个C结构来代表一个字符串，在SDS返回给用户的字符串的指针前存储一个二进制前缀。
+
+    +--------+-------------------------------+-----------+
+    | Header | Binary safe C alike string... | Null term |
+    +--------+-------------------------------+-----------+
+             |
+             `-> Pointer returned to the user.
+
+由于元数据作为一个前缀存储在真正返回的指针前面，并且每个SDS字符串都在忽略真正字符串内容的前提下在字符串最后增加一个null项，所以SDS字符串可以和C语言字符串能够很好的一起工作，用户也可以自由的使用其他标准的C语言字符串的只读函数。
+
 SDS was a C string I developed in the past for my everyday C programming needs,
 later it was moved into Redis where it is used extensively and where it was
 modified in order to be suitable for high performance operations. Now it was
 extracted from Redis and forked as a stand alone project.
+
+在我过去每天的C程序开发开发中，SDS是一个C语言字符串，后来我在Redis中广泛使用它，并且修改了它以应对高性能操作。现在我把它从Redis中玻璃处理，并且作为一个独立项目。
 
 Because of its many years life inside Redis, SDS provides both higher level
 functions for easy strings manipulation in C, but also a set of low level
@@ -53,6 +84,9 @@ functions that make it possible to write high performance code without paying
 a penalty for using an higher level string library.
 
 Advantages and disadvantages of SDS
+===
+
+SDS的有点和缺点
 ===
 
 Normally dynamic string libraries for C are implemented using a structure
@@ -67,12 +101,26 @@ struct yourAverageStringLibrary {
 };
 ```
 
+通常C语言库的动态字符串是通过使用一个结构来定义字符串的。这个结构有个一个通过字符串函数管理的指针字段，它看起来像这样：
+
+```c
+struct yourAverageStringLibrary {
+    char *buf;
+    size_t len;
+    ... possibly more fields here ...
+};
+```
+
 SDS strings as already mentioned don't follow this schema, and are instead
 a single allocation with a prefix that lives *before* the address actually
 returned for the string.
 
+前面已经说过 SDS 字符串已经不使用这样的模式了，取而代之，它使用一个在真正字符串指针前面增加一个前缀的单一分配。
+
 There are advantages and disadvantages with this approach over the traditional
 approach:
+
+与传统方式相比，这种方式既有有点也有缺点：
 
 **Disadvantage #1**: many functions return the new string as value, since sometimes SDS requires to create a new string with more space, so the most SDS API calls look like this:
 
@@ -86,9 +134,37 @@ SDS string we passed or allocated a new one. Not remembering to assign back
 the return value of `sdscat` or similar functions to the variable holding
 the SDS string will result in a bug.
 
+**缺点1**：很多函数返回一个新的string作为返回值，因为有时SDS创建一个新字符串需要更多空间，所以大多数SDS API调用起来像这样：
+
+```c
+s = sdscat(s,"Some more data");
+```
+
+正如你所看到的，`s` 被用作 `sdscat` 的入参，同时又作为返回值的接收者，因为我们不确定我们的调用是否会改变我们传入的SDS字符串，同时也不确是否会被分配一个新的字符串。如果忘记接收`sdscat`这样的方法的返回值将会导致bug出现。
+
 **Disadvantage #2**: if an SDS string is shared in different places in your program you have to modify all the references when you modify the string. However most of the times when you need to share SDS strings it is much better to encapsulate them into structures with a `reference count` otherwise it is too easy to incur into memory leaks.
 
+**缺点2**： 如果一个SDS字符串在你的程序中被不同的地方共享，当你改变这个字符串的使用，你不得不改变所有相关点。然而大多数时候，当你需要共享SDS字符串时，最好的方式是在你的结构中封装一个`reference count`，否则很容易导致内存泄漏。
+
 **Advantage #1**: you can pass SDS strings to functions designed for C functions without accessing a struct member or calling a function, like this:
+
+```c
+printf("%s\n", sds_string);
+```
+
+In most other libraries this will be something like:
+
+```c
+printf("%s\n", string->buf);
+```
+
+Or:
+
+```c
+printf("%s\n", getStringPointer(string));
+```
+
+**有点1**：你可以将SDS字符串直接传给C方法，而不用访问结构成员或调用一个方法，像这样：
 
 ```c
 printf("%s\n", sds_string);
