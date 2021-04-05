@@ -15,10 +15,8 @@ Note that this version of SDS may be a slower with certain workloads, but
 uses less memory compared to V1 since header size is dynamic and depends to
 the string to alloc.
 
-SDS的这个版本在某些情况下可能会比较慢，但是相比于版本1来说会适用更少的内存空间，因为header会根据分配的字符串动态调整大小。
-
-Moreover it includes a few more API functions, notably `sdscatfmt` which
-is a faster version of `sdscatprintf` that can be used for the simpler
+SDS的这个版本在某些情况下可能会比较慢，但是相比于版本1来说会使用更少的内存空间，因为header会根据分配的字符串动态调整大小。
+Moreover it includes a few more API functions, notably `sdscatfmt` whichis a faster version of `sdscatprintf` that can be used for the simpler
 cases in order to avoid the libc `printf` family functions performance
 penalty.
 
@@ -164,7 +162,7 @@ Or:
 printf("%s\n", getStringPointer(string));
 ```
 
-**有点1**：你可以将SDS字符串直接传给C方法，而不用访问结构成员或调用一个方法，像这样：
+**优点1**：你可以将SDS字符串直接传给C方法，而不用访问结构成员或调用一个方法，像这样：
 
 ```c
 printf("%s\n", sds_string);
@@ -190,9 +188,22 @@ printf("%c %c\n", s[0], s[1]);
 
 With other libraries your best chance is to assign `string->buf` (or call the function to get the string pointer) to a `char` pointer and work with this. However since the other libraries may reallocate the buffer implicitly every time you call a function that may modify the string you have to get a reference to the buffer again.
 
+**优点2**：能够很简单的访问单个字符。C语言是低级编程语言，所以在很多程序中这是一个很重要的操作。SDS字符串访问单个字符非常自然：
+
+```c
+printf("%c %c\n", s[0], s[1])
+```
+
+但是其他的库你需要将`string->buf`（或者通过调用函数来获取string的指针）分配给一个`char`指针，然后通过这个指针来访问单个字符。然而其他库在你每次调用一个改变字符串的函数时都会隐式的重新分配缓冲区，所以你不得不再为这个缓冲区设置一个引用。
+
 **Advantage #3**: single allocation has better cache locality. Usually when you access a string created by a string library using a structure, you have two different allocations for the structure representing the string, and the actual buffer holding the string. Over the time the buffer is reallocated, and it is likely that it ends in a totally different part of memory compared to the structure itself. Since modern programs performances are often dominated by cache misses, SDS may perform better in many workloads.
 
+**优点3**：单个分配具有更好的局部缓存。通常情况下，当你访问一个由字符串库创建的字符串时，你会得到代表这个字符串的结构的两个分配，并且真正的缓冲区持有字符串。随着时间的推移，缓冲区会被重新分配，与结构自身相比，这个缓冲区很可能以完全不同的内存部分结束。由于现代程序的性能通常被缓存未命中控制，所以SDS可能在更多情况下表现的更好。
+
 SDS basics
+===
+
+SDS基础
 ===
 
 The type of SDS strings is just the char pointer `char *`. However SDS defines
@@ -200,7 +211,19 @@ an `sds` type as alias of `char *` in its header file: you should use the
 `sds` type in order to make sure you remember that a given variable in your
 program holds an SDS string and not a C string, however this is not mandatory.
 
+SDS字符串的类型就是一个字符指针`char *`。但是SDS在它的头部文件中定义一个`sds`类型作为`char *`的别名：为了确保在你程序中的给定变量指向的是一个SDS字符串而不是一个C字符串，你应该使用`sds`类型，当然，这不是强制的。
+
 This is the simplest SDS program you can write that does something:
+
+```c
+sds mystring = sdsnew("Hello World!");
+printf("%s\n", mystring);
+sdsfree(mystring);
+
+output> Hello World!
+```
+
+这是一个你可以写出来的非常简单的SDS程序：
 
 ```c
 sds mystring = sdsnew("Hello World!");
@@ -216,7 +239,16 @@ The above small program already shows a few important things about SDS:
 * SDS strings can be passed to `printf()` like any other C string.
 * SDS strings require to be freed with `sdsfree()`, since they are heap allocated.
 
+上面的这个小程序已经展示了几个关于SDS的重要的部分：
+
+* SDS 字符串通过`sdsnew()`或者其他我们稍后会看到的相似函数创建，分配堆
+* SDS 字符串能够像任何其他C字符串那样传递给`pringf()`
+* SDS 字符串必须用`sdsfree()`来进行释放，因为他们是堆分配的。
+
 Creating SDS strings
+---
+
+创建SDS字符串
 ---
 
 ```c
@@ -228,8 +260,12 @@ sds sdsdup(const sds s);
 
 There are many ways to create SDS strings:
 
+有很多种创建SDS字符串的方式：
+
 * The `sdsnew` function creates an SDS string starting from a C null terminated string. We already saw how it works in the above example.
+* `sdsnew`函数可以从一个C语言的非null结尾的字符串创建一个SDS字符串。我们已经在上面的例子中知道他是如何工作的了。
 * The `sdsnewlen` function is similar to `sdsnew` but instead of creating the string assuming that the input string is null terminated, it gets an additional length parameter. This way you can create a string using binary data:
+* `sdsnewlen`函数和`sdsnew`函数很相似，但是它还需要一个len参数。你可以通过一个二进制数据创建一个字符串：
 
     ```c
     char buf[3];
@@ -244,11 +280,13 @@ There are many ways to create SDS strings:
     output> ABC of len 3
     ```
 
-  Note: `sdslen` return value is casted to `int` because it returns a `size_t`
+  Note: `sdslen` return value is casted to `int` because it returns a `size_t`  
 type. You can use the right `printf` specifier instead of casting.
 
-* The `sdsempty()` function creates an empty zero-length string:
+  注意：`sdslen` 的返回值需要转换成`int`，因为它的类型是`size_t`。你可以使用正确的`printf`表示符来代替强制转换。
 
+* The `sdsempty()` function creates an empty zero-length string:
+* `sdsempty()`方法创建一个长度为0的空SDS字符串：
     ```c
     sds mystring = sdsempty();
     printf("%d\n", (int) sdslen(mystring));
@@ -257,6 +295,7 @@ type. You can use the right `printf` specifier instead of casting.
     ```
 
 * The `sdsdup()` function duplicates an already existing SDS string:
+* `sdsdup()`函数对一个SDS字符串进行复制：
 
     ```c
     sds s1, s2;
@@ -271,19 +310,31 @@ type. You can use the right `printf` specifier instead of casting.
 Obtaining the string length
 ---
 
+获取字符串长度
+---
+
 ```c
 size_t sdslen(const sds s);
 ```
 
 In the examples above we already used the `sdslen` function in order to get
 the length of the string. This function works like `strlen` of the libc
+
+在上面的例子中我们已经使用`sdslen`函数来获取了字符串的长度。这个函数的功能类似与libc库中的`strlen`
+
 except that:
 
+除了：
+
 * It runs in constant time since the length is stored in the prefix of SDS strings, so calling `sdslen` is not expensive even when called with very large strings.
+* 它运行起来是常量时间，因为它的长度已经在SDS字符串的前缀中存储下来了，所以调用`sdslen`函数成本是很低的，即使是字符串很大的情况下。
 * The function is binary safe like any other SDS string function, so the length is the true length of the string regardless of the content, there is no problem if the string includes null term characters in the middle.
+* 这个函数和其他的SDS字符串函数一样是二进制安全的，因为它的长度是字符串真正的长度，不管内容是什么，即使字符串内容的中间包含null项。
 
 As an example of the binary safeness of SDS strings, we can run the following
 code:
+
+下面这段代码是一个非二进制安全的SDS字符串的例子：
 
 ```c
 sds s = sdsnewlen("A\0\0B",4);
